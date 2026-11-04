@@ -1,0 +1,28 @@
+# تنظیمات پروژه — کنار پوشه src قرار دهید
+# توجه: مسیرها حتماً باید با / تمام شوند
+
+data:
+  raw_sent: "data/raw/digikala_comments.csv"
+  raw_summ: "data/raw/pn_summary.csv"
+  processed: "data/processed/"
+  max_input_length: 512
+  max_summary_length: 128
+
+preprocess:
+  min_text_len: 10
+  max_text_len: 2000
+
+model:
+  base_model: "google/mt5-small"
+  epochs_stage1: 3
+  epochs_stage2: 3
+  epochs_joint: 3
+  learning_rate: 5.0e-4
+  warmup_steps: 500
+  weight_decay: 0.01
+
+output:
+  models_dir: "outputs/models/"
+  results_dir: "outputs/results/"
+  figures_dir: "outputs/figures/"
+  checkpoints_dir: "outputs/checkpoints/"
