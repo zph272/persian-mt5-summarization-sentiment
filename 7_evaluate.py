@@ -83,6 +83,7 @@ def generate(model, tokenizer, texts, max_new, beams, batch_size, desc):
 
 def mean_loss(model, tokenizer, df, max_target_len, n=500, batch_size=8):
     """Average per-batch cross-entropy in eval mode (no dropout) on up to n samples."""
+    n = config.get('smoke_rows', n)
     df = df.sample(n=min(n, len(df)), random_state=42)
     losses = []
     model.eval()
@@ -153,6 +154,8 @@ def main():
         df = load_split('test', 'summ')
         if args.max_summ:
             df = df.head(args.max_summ)
+        if config.get('smoke_rows'):
+            df = df.head(config['smoke_rows'])
         preds = generate(model, tokenizer, list(df['text']), config['data']['max_summary_length'],
                          NUM_BEAMS, args.batch_size, 'Summarization')
         r = rouge(preds, list(df['target']))
@@ -170,6 +173,8 @@ def main():
 
     if 'sent' in tasks:
         df = load_split('test', 'sent')
+        if config.get('smoke_rows'):
+            df = df.head(config['smoke_rows'])
         raw = generate(model, tokenizer, list(df['text']), 8, 1, args.batch_size * 2, 'Sentiment')
         preds = [parse_sentiment(x) for x in raw]
         m = sentiment_report(list(df['target']), preds)

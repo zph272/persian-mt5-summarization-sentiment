@@ -117,6 +117,9 @@ def main():
     print(f"   Validation (official dev sample): {len(val_df):,}")
     print(f"   Official test (not used here): {(df['split'] == 'test').sum():,}")
 
+    if config.get('smoke_rows'):                     # smoke test only
+        train_df, val_df = train_df.head(config['smoke_rows']), val_df.head(config['smoke_rows'])
+
     # ===== Prepare dataset =====
     from datasets import DatasetDict
     dataset = DatasetDict({
@@ -186,8 +189,8 @@ def main():
         weight_decay=float(config['model']['weight_decay']),
         fp16=False,
         eval_strategy="steps",
-        eval_steps=600,               # fewer evaluations: each one generates 500 summaries (~6 min)
-        save_steps=600,
+        eval_steps=2 if config.get('smoke_rows') else 600,   # each evaluation generates 500 summaries (~6 min)
+        save_steps=2 if config.get('smoke_rows') else 600,
         save_total_limit=2,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",

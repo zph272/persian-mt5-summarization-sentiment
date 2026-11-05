@@ -107,6 +107,9 @@ def train_seq2seq(train_df, val_df, init, name, epochs, eval_steps,
     """
     torch.cuda.empty_cache()
     torch.manual_seed(SEED)
+    if config.get('smoke_rows'):                     # smoke test only
+        n = config['smoke_rows']
+        train_df, val_df, eval_steps = train_df.head(n), val_df.head(n), 2
     path = model_path(init)
     print(f"🔄 Loading model from: {path}")
     tokenizer = AutoTokenizer.from_pretrained(path)

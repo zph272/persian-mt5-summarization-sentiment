@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt   # رسم نمودار
 import seaborn as sns             # نمودارهای آماری زیباتر
 from datetime import datetime     # تاریخ و ساعت
 import os                         # ساختن پوشه‌ها و کار با سیستم‌عامل
+import logging
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)   # hide 'font not found' warnings
 
 # ===== تنظیم فونت و ظاهر نمودارها =====
 # فونت‌هایی که حروف فارسی را پشتیبانی می‌کنند (به ترتیب اولویت)
@@ -42,12 +44,29 @@ def fa(text):
     return str(text)
 
 
+SMOKE_ROWS = 24   # rows per split in the smoke test
+
+
 def load_config():
-    """بارگذاری فایل کانفیگ"""
+    """بارگذاری فایل کانفیگ
+
+    حالت آزمایشی (SMOKE=1): فقط برای اطمینان از اجرا شدن کد، بدون GPU.
+    مدل کوچک mt5-small، ۱ ایپاک، ۲۴ نمونه، و خروجی در پوشه‌ی جداگانه smoke_outputs/
+    (با خروجی اصلی قاطی نمی‌شود). نتایج این حالت معنی ندارند.
+    """
     # فایل config.yaml از پوشه‌ای خوانده می‌شود که برنامه در آن اجرا شده است
     with open('config.yaml', 'r', encoding='utf-8') as f:
         # تبدیل محتوای فایل به دیکشنری پایتون
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if os.environ.get('SMOKE') == '1':
+        cfg['model']['base_model'] = 'google/mt5-small'
+        for k in ('epochs_stage1', 'epochs_stage2', 'epochs_joint'):
+            cfg['model'][k] = 1
+        cfg['model']['warmup_steps'] = 0
+        cfg['output'] = {k: v.replace('outputs/', 'smoke_outputs/', 1) for k, v in cfg['output'].items()}
+        cfg['output']['checkpoints_dir'] = '/tmp/smoke_checkpoints/'
+        cfg['smoke_rows'] = SMOKE_ROWS
+    return cfg
 
 
 def create_directories():
