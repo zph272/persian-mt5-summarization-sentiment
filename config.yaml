@@ -13,11 +13,11 @@ preprocess:
   max_text_len: 2000
 
 model:
-  base_model: "google/mt5-small"
+  base_model: "google/mt5-base"     # مطابق مقاله (قبلاً mt5-small بود)
   epochs_stage1: 3
   epochs_stage2: 3
   epochs_joint: 3
-  learning_rate: 5.0e-4
+  learning_rate: 5.0e-5      # مطابق مقاله (قبلاً 5.0e-4 بود)
   warmup_steps: 500
   weight_decay: 0.01
 
