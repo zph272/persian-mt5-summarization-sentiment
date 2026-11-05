@@ -19,6 +19,7 @@ import time
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from datasets import Dataset
 from sklearn.metrics import accuracy_score, f1_score
 from transformers import (MT5ForConditionalGeneration, AutoTokenizer, Seq2SeqTrainer,
@@ -71,13 +72,38 @@ def print_gpu():
               f"({torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB)")
 
 
+class PerExampleLossTrainer(Seq2SeqTrainer):
+    """
+    Loss = mean over examples of (mean cross-entropy over that example's target tokens).
+    With the default token-level mean, a 60-token summary weighs ~20x more than a 3-token
+    sentiment label, so in Stage 3 sentiment would contribute only ~1% of the loss.
+    Here every example has the same weight, whatever the length of its target.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.model_accepts_loss_kwargs = False      # Trainer then divides by gradient_accumulation_steps
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs["labels"]
+        outputs = model(**{k: v for k, v in inputs.items() if k != "labels"})   # decoder_input_ids come from the collator
+        logits = outputs.logits.float()
+        tok = F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1),
+                              ignore_index=-100, reduction="none").view(labels.shape)
+        mask = (labels != -100).float()
+        per_example = (tok * mask).sum(1) / mask.sum(1).clamp(min=1.0)
+        loss = per_example.mean()
+        return (loss, outputs) if return_outputs else loss
+
+
 def train_seq2seq(train_df, val_df, init, name, epochs, eval_steps,
-                  max_target_len, sentiment_metrics=False):
+                  max_target_len, sentiment_metrics=False, per_example_loss=False):
     """
     Fine-tune an mT5 model.
       init  : 'base' or the name of a saved model (e.g. 'summ_final')
       name  : output name (saved to outputs/models/<name>)
       sentiment_metrics : if True, validation also generates labels and reports accuracy / macro-F1
+      per_example_loss  : if True, every example has equal weight in the loss (used in Stage 3)
     """
     torch.cuda.empty_cache()
     torch.manual_seed(SEED)
@@ -149,7 +175,8 @@ def train_seq2seq(train_df, val_df, init, name, epochs, eval_steps,
         seed=SEED,
     )
 
-    trainer = Seq2SeqTrainer(
+    trainer_cls = PerExampleLossTrainer if per_example_loss else Seq2SeqTrainer
+    trainer = trainer_cls(
         model=model, args=args, train_dataset=train_ds, eval_dataset=val_ds,
         data_collator=collator,
         compute_metrics=compute_metrics if sentiment_metrics else None,
@@ -169,7 +196,7 @@ def train_seq2seq(train_df, val_df, init, name, epochs, eval_steps,
     tokenizer.save_pretrained(save_path)
 
     final = trainer.evaluate()
-    meta = {'name': name, 'init': init, 'n_train': len(train_df), 'n_val': len(val_df),
+    meta = {'name': name, 'init': init, 'per_example_loss': per_example_loss, 'n_train': len(train_df), 'n_val': len(val_df),
             'epochs_max': epochs, 'steps_done': trainer.state.global_step,
             'best_checkpoint': trainer.state.best_model_checkpoint,
             'best_val_metrics': {k: float(v) for k, v in final.items()},

@@ -11,11 +11,18 @@ Changes vs. previous version:
   3. Validation on joint_val.csv (1,500 + 449). The test split is never used here.
      (Previously joint_clean.csv was re-split, so test samples could be trained on.)
   4. Uses all training rows (previously df.head(5000)).
-  5. Loss = token-level cross-entropy over the mixed batch; padding masked; no label smoothing.
+  5. Task balance: the 2,093 sentiment reviews are repeated 3 times (6,279 vs 7,000 summaries), and the
+     loss gives every example the same weight (mean over its own target tokens, then mean over the batch).
+     Otherwise long summaries dominate: with a token-level mean, sentiment labels (2-3 tokens) would make up
+     only ~1% of the loss and the model could forget what it learned in Stage 2.
+  6. Padding masked; no label smoothing.
 """
+import pandas as pd
 import argparse
 from utils import print_section
 from train_common import config, load_split, train_seq2seq, print_gpu
+
+SENT_REPEAT = 3   # each sentiment review appears 3 times in Stage 3
 
 
 def main():
@@ -26,12 +33,16 @@ def main():
 
     print_gpu()
     print_section(f"Stage 3: Joint training  ->  {args.name}  (init: {args.init})")
-    train_df = load_split('train')                      # both tasks, already shuffled in step 3
+    train_df = load_split('train')                      # both tasks
+    sent = train_df[train_df['task'] == 'sent']
+    train_df = pd.concat([train_df] + [sent] * (SENT_REPEAT - 1), ignore_index=True) \
+                 .sample(frac=1.0, random_state=42).reset_index(drop=True)
     val_df = load_split('val')
 
     train_seq2seq(train_df, val_df, init=args.init, name=args.name,
                   epochs=config['model']['epochs_joint'], eval_steps=300,
-                  max_target_len=config['data']['max_summary_length'], sentiment_metrics=False)
+                  max_target_len=config['data']['max_summary_length'], sentiment_metrics=False,
+                  per_example_loss=True)
 
 
 if __name__ == "__main__":
