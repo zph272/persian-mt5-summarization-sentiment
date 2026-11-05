@@ -1,278 +1,135 @@
 """
-فاز ۱۱ و ۱۲: رسم نمودارها و شکل‌های ضروری
-"""
+Phase 11 - Figures and results table from REAL outputs only (fixed version)
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+  python 8_plot_results.py
+
+Reads outputs/results/*_training_history.csv and *_eval.json and writes:
+  outputs/figures/loss_curves.png           training / validation loss vs. optimization step (Fig. 3)
+  outputs/figures/confusion_<model>.png     confusion matrix (Fig. 2)
+  outputs/results/results_table.md          all models and baselines in one table
+
+Changes vs. previous version:
+  - Removed the "human evaluation" radar chart and the "ablation" chart: they used hard-coded
+    numbers (4.2, 4.0, ...; accuracy x 0.5, x 0.7, ...) that were not measured.
+  - Validation loss is plotted at its real optimization step (previously spread evenly along the
+    training curve, which made the two curves look misaligned).
+  - English labels for publication.
+"""
+import glob
 import json
 import os
-from pathlib import Path
-from utils import load_config, save_plot, print_section
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from utils import load_config
 
 config = load_config()
+RES = config['output']['results_dir']
+FIG = config['output']['figures_dir']
+os.makedirs(FIG, exist_ok=True)
 
-# ایجاد پوشه figures
-os.makedirs(config['output']['figures_dir'], exist_ok=True)
+EN = {"مثبت": "Positive", "خنثی": "Neutral", "منفی": "Negative", "نامعتبر": "Invalid"}
+NAMES = {
+    'summ': 'Stage 1 (summarization)', 'summ_final': 'Stage 1 (summarization)',
+    'sent_final': 'Stages 1→2', 'joint_final': 'Stages 1→2→3 (final model)',
+    'sent_only': 'Ablation: sentiment only (from mT5-base)',
+    'joint_only': 'Ablation: joint only, no curriculum (from mT5-base)',
+}
+ORDER = ['summ_final', 'sent_final', 'joint_final', 'sent_only', 'joint_only']
 
-def plot_training_curves():
-    """رسم منحنی‌های آموزش"""
-    print_section("رسم منحنی‌های آموزش")
-    
-    stages = ['summ', 'sent', 'joint']
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    
-    for idx, stage in enumerate(stages):
-        try:
-            history = pd.read_csv(f"{config['output']['results_dir']}{stage}_training_history.csv")
-            
-            train_loss = history[history['loss'].notna()]['loss'].values
-            eval_loss = history[history['eval_loss'].notna()]['eval_loss'].values
-            
-            ax = axes[idx]
-            ax.plot(train_loss, label='Training Loss', alpha=0.8)
-            if len(eval_loss) > 0:
-                eval_steps = np.linspace(0, len(train_loss), len(eval_loss))
-                ax.plot(eval_steps, eval_loss, label='Validation Loss', alpha=0.8)
-            
-            titles = ["مرحله ۱: خلاصه‌سازی", "مرحله ۲: تحلیل احساس", "مرحله ۳: آموزش مشترک"]
-            ax.set_title(titles[idx])
-            ax.set_xlabel('Step')
-            ax.set_ylabel('Loss')
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-            
-        except Exception as e:
-            print(f"⚠️ خطا در رسم منحنی مرحله {stage}: {e}")
-    
-    plt.tight_layout()
-    save_plot(fig, 'training_loss_curves.png', config)
 
-def plot_rouge_comparison():
-    """مقایسه امتیازات ROUGE"""
-    print_section("مقایسه امتیازات ROUGE")
-    
-    try:
-        with open(f"{config['output']['results_dir']}evaluation_results.json", 'r', encoding='utf-8') as f:
-            results = json.load(f)
-        
-        rouge_scores = results['summary']
-        
-        fig, ax = plt.subplots(figsize=(8, 6))
-        
-        metrics = ['ROUGE-1', 'ROUGE-2', 'ROUGE-L']
-        scores = [rouge_scores['rouge1'], rouge_scores['rouge2'], rouge_scores['rougeL']]
-        
-        bars = ax.bar(metrics, scores, color=['skyblue', 'lightgreen', 'lightcoral'])
-        ax.set_ylabel('F1 Score')
-        ax.set_title('امتیازات ROUGE برای خلاصه‌سازی')
-        ax.set_ylim(0, 1)
-        ax.grid(True, alpha=0.3, axis='y')
-        
-        for bar, score in zip(bars, scores):
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{score:.3f}', ha='center', va='bottom')
-        
-        save_plot(fig, 'rouge_comparison.png', config)
-        
-    except Exception as e:
-        print(f"⚠️ خطا در رسم نمودار ROUGE: {e}")
+def plot_losses():
+    files = sorted(glob.glob(f"{RES}*_training_history.csv"))
+    if not files:
+        print("⚠️ No training-history files found.")
+        return
+    fig, axes = plt.subplots(1, len(files), figsize=(5 * len(files), 3.8), squeeze=False)
+    for ax, f in zip(axes[0], files):
+        key = os.path.basename(f).replace('_training_history.csv', '')
+        h = pd.read_csv(f)
+        if 'loss' in h:
+            t = h.dropna(subset=['loss'])
+            ax.plot(t['step'], t['loss'], label='Training loss (as logged)', alpha=0.85)
+        if 'eval_loss' in h:
+            e = h.dropna(subset=['eval_loss'])
+            ax.plot(e['step'], e['eval_loss'], 'o-', ms=3, label='Validation loss')
+        ax.set_title(NAMES.get(key, key), fontsize=10)
+        ax.set_xlabel('Optimization step')
+        ax.set_ylabel('Cross-entropy')
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(f"{FIG}loss_curves.png", dpi=300)
+    plt.close(fig)
+    print(f"✅ {FIG}loss_curves.png")
 
-def plot_sentiment_metrics():
-    """نمودار معیارهای تحلیل احساس"""
-    print_section("نمودار معیارهای تحلیل احساس")
-    
-    try:
-        with open(f"{config['output']['results_dir']}evaluation_results.json", 'r', encoding='utf-8') as f:
-            results = json.load(f)
-        
-        sent_metrics = results['sentiment']
-        
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        metrics = ['Accuracy', 'Precision', 'Recall', 'F1-W', 'F1-M']
-        scores = [
-            sent_metrics['accuracy'],
-            sent_metrics['precision_weighted'],
-            sent_metrics['recall_weighted'],
-            sent_metrics['f1_weighted'],
-            sent_metrics['f1_macro']
-        ]
-        
-        colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#6A994E']
-        bars = ax.bar(metrics, scores, color=colors)
-        ax.set_ylabel('Score')
-        ax.set_title('معیارهای تحلیل احساس')
-        ax.set_ylim(0, 1)
-        ax.grid(True, alpha=0.3, axis='y')
-        
-        for bar, score in zip(bars, scores):
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{score:.3f}', ha='center', va='bottom')
-        
-        save_plot(fig, 'sentiment_metrics.png', config)
-        
-    except Exception as e:
-        print(f"⚠️ خطا در رسم نمودار احساس: {e}")
 
-def plot_confusion_matrix():
-    """رسم ماتریس درهم‌ریختگی"""
-    print_section("ماتریس درهم‌ریختگی")
-    
-    try:
-        with open(f"{config['output']['results_dir']}evaluation_results.json", 'r', encoding='utf-8') as f:
-            results = json.load(f)
-        
-        cm = np.array(results['sentiment']['confusion_matrix'])
-        classes = ['مثبت', 'خنثی', 'منفی']
-        
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                    xticklabels=classes, yticklabels=classes,
-                    ax=ax)
-        ax.set_xlabel('پیش‌بینی')
-        ax.set_ylabel('واقعیت')
-        ax.set_title('ماتریس درهم‌ریختگی - تحلیل احساس')
-        
-        save_plot(fig, 'confusion_matrix.png', config)
-        
-    except Exception as e:
-        print(f"⚠️ خطا در رسم ماتریس درهم‌ریختگی: {e}")
+def plot_confusions():
+    for f in sorted(glob.glob(f"{RES}*_eval.json")):
+        r = json.load(open(f, encoding='utf-8'))
+        if 'sentiment' not in r or 'model' not in r:
+            continue
+        cm = r['sentiment']['confusion_matrix']
+        vals, cols = np.array(cm['values']), cm['cols_pred']
+        if vals[:, -1].sum() == 0:                      # hide the "invalid" column if empty
+            vals, cols = vals[:, :-1], cols[:-1]
+        fig, ax = plt.subplots(figsize=(4.8, 3.9))
+        im = ax.imshow(vals, cmap='Blues')
+        ax.set_xticks(range(len(cols)), [EN[c] for c in cols])
+        ax.set_yticks(range(len(cm['rows_true'])), [EN[c] for c in cm['rows_true']])
+        for i in range(vals.shape[0]):
+            for j in range(vals.shape[1]):
+                ax.text(j, i, int(vals[i, j]), ha='center', va='center',
+                        color='white' if vals[i, j] > vals.max() / 2 else 'black')
+        ax.set_xlabel('Predicted')
+        ax.set_ylabel('True')
+        fig.colorbar(im, ax=ax, fraction=0.046)
+        fig.tight_layout()
+        fig.savefig(f"{FIG}confusion_{r['model']}.png", dpi=300)
+        plt.close(fig)
+        print(f"✅ {FIG}confusion_{r['model']}.png")
 
-def plot_dataset_distribution():
-    """نمایش توزیع دیتاست‌ها"""
-    print_section("توزیع دیتاست‌ها")
-    
-    try:
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        
-        # ۱. توزیع احساسات در دیتاست اصلی
-        df_sent = pd.read_csv(f"{config['data']['processed']}sent_clean.csv")
-        df_sent['label'] = df_sent['Score'].apply(
-            lambda x: 'مثبت' if x >= 80 else ('خنثی' if x >= 50 else 'منفی')
-        )
-        
-        ax1 = axes[0, 0]
-        sent_counts = df_sent['label'].value_counts()
-        colors = ['#2ECC71', '#F1C40F', '#E74C3C']
-        ax1.pie(sent_counts.values, labels=sent_counts.index, autopct='%1.1f%%', 
-                startangle=90, colors=colors)
-        ax1.set_title('توزیع احساسات - دیتاست اصلی')
-        
-        # ۲. طول متن‌ها
-        ax2 = axes[0, 1]
-        ax2.hist(df_sent['clean_text'].str.len(), bins=50, color='skyblue', alpha=0.7)
-        ax2.set_title('توزیع طول متن')
-        ax2.set_xlabel('طول متن')
-        ax2.set_ylabel('تعداد')
-        ax2.grid(True, alpha=0.3)
-        
-        # ۳. نسبت فشرده‌سازی خلاصه
-        df_summ = pd.read_csv(f"{config['data']['processed']}summ_clean.csv")
-        compression_ratio = df_summ['clean_text'].str.len() / df_summ['clean_summary'].str.len()
-        
-        ax3 = axes[1, 0]
-        ax3.hist(compression_ratio, bins=50, color='lightgreen', alpha=0.7)
-        ax3.axvline(compression_ratio.mean(), color='red', linestyle='--', 
-                   label=f'میانگین: {compression_ratio.mean():.2f}')
-        ax3.set_title('نسبت فشرده‌سازی')
-        ax3.set_xlabel('نسبت')
-        ax3.set_ylabel('تعداد')
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
-        
-        # ۴. توزیع طول خلاصه
-        ax4 = axes[1, 1]
-        ax4.hist(df_summ['clean_summary'].str.len(), bins=30, color='lightcoral', alpha=0.7)
-        ax4.set_title('توزیع طول خلاصه')
-        ax4.set_xlabel('طول خلاصه')
-        ax4.set_ylabel('تعداد')
-        ax4.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        save_plot(fig, 'dataset_distribution.png', config)
-        
-    except Exception as e:
-        print(f"⚠️ خطا در رسم توزیع دیتاست: {e}")
 
-def plot_human_eval_radar():
-    """رسم نمودار رادار ارزیابی انسانی"""
-    print_section("نمودار رادار ارزیابی انسانی")
-    
-    # داده‌های نمونه - در عمل باید از ارزیابی انسانی پر شود
-    metrics = ['روانی', 'مرتبط بودن', 'اطلاعات مهم', 'حفظ احساس']
-    scores = [4.2, 4.0, 3.8, 4.1]
-    
-    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(projection='polar'))
-    
-    angles = np.linspace(0, 2 * np.pi, len(metrics), endpoint=False).tolist()
-    scores += scores[:1]
-    angles += angles[:1]
-    
-    ax.plot(angles, scores, 'o-', linewidth=2)
-    ax.fill(angles, scores, alpha=0.25)
-    ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(metrics)
-    ax.set_ylim(0, 5)
-    ax.set_title('ارزیابی انسانی مدل', size=15)
-    ax.grid(True)
-    
-    save_plot(fig, 'human_evaluation_radar.png', config)
+def fmt(x, pct=False):
+    if x is None:
+        return '–'
+    return f"{100 * x:.1f}" if pct else f"{x:.2f}"
 
-def plot_ablation_study():
-    """نمودار مطالعه حذف (Ablation Study)"""
-    print_section("مطالعه حذف")
-    
-    try:
-        with open(f"{config['output']['results_dir']}evaluation_results.json", 'r', encoding='utf-8') as f:
-            results = json.load(f)
-        
-        rouge1 = results['summary']['rouge1']
-        accuracy = results['sentiment']['accuracy']
-        
-        # داده‌های نمونه - می‌توانید با مقادیر واقعی جایگزین کنید
-        models = ['مدل کامل', 'بدون خلاصه', 'بدون احساس', 'بدون مشترک']
-        rouge_scores = [rouge1, rouge1 * 0.7, rouge1 * 0.5, rouge1 * 0.3]
-        sentiment_f1 = [accuracy, accuracy * 0.5, accuracy * 0.7, accuracy * 0.4]
-        
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        x = np.arange(len(models))
-        width = 0.35
-        
-        bars1 = ax.bar(x - width/2, rouge_scores, width, label='ROUGE-1', color='skyblue')
-        bars2 = ax.bar(x + width/2, sentiment_f1, width, label='F1 احساس', color='lightcoral')
-        
-        ax.set_xlabel('مدل')
-        ax.set_ylabel('امتیاز')
-        ax.set_title('مطالعه حذف - تاثیر هر بخش')
-        ax.set_xticks(x)
-        ax.set_xticklabels(models, rotation=15)
-        ax.legend()
-        ax.grid(True, alpha=0.3, axis='y')
-        ax.set_ylim(0, 1)
-        
-        save_plot(fig, 'ablation_study.png', config)
-        
-    except Exception as e:
-        print(f"⚠️ خطا در رسم مطالعه حذف: {e}")
 
-def plot_all_figures():
-    """رسم تمام نمودارها"""
-    print_section("فاز ۱۱ و ۱۲: رسم تمام نمودارها")
-    
-    plot_training_curves()
-    plot_rouge_comparison()
-    plot_sentiment_metrics()
-    plot_confusion_matrix()
-    plot_dataset_distribution()
-    plot_human_eval_radar()
-    plot_ablation_study()
-    
-    print(f"\n✅ تمام نمودارها در {config['output']['figures_dir']} ذخیره شدند.")
+def results_table():
+    rows = []
+    bpath = f"{RES}baselines_eval.json"
+    if os.path.exists(bpath):
+        b = json.load(open(bpath, encoding='utf-8'))
+        ms = b['majority_sentiment']
+        rows.append([f"Majority class ({EN[ms['majority_label']]})", None, None, None, ms['accuracy'],
+                     ms['macro_f1'], ms['weighted_f1'], ms['per_class']['منفی']['recall'], 0])
+        lk = [k for k in b if k.startswith('lead')][0]
+        rows.append([f"Lead baseline ({lk[4:-8]} words)", b[lk]['rouge1'], b[lk]['rouge2'], b[lk]['rougeL']] + [None] * 5)
+    rows.append(["mT5-base, full training set (published)", 45.91, 27.84, 39.90] + [None] * 5)
+    for name in ORDER:
+        f = f"{RES}{name}_eval.json"
+        if not os.path.exists(f):
+            continue
+        r = json.load(open(f, encoding='utf-8'))
+        s, m = r.get('summarization', {}), r.get('sentiment', {})
+        rows.append([NAMES.get(name, name), s.get('rouge1'), s.get('rouge2'), s.get('rougeL'),
+                     m.get('accuracy'), m.get('macro_f1'), m.get('weighted_f1'),
+                     m.get('per_class', {}).get('منفی', {}).get('recall'), m.get('invalid_outputs')])
+    lines = ["| Model | R-1 | R-2 | R-L | Acc (%) | Macro-F1 (%) | Weighted-F1 (%) | Neg. recall (%) | Invalid |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        lines.append(f"| {r[0]} | {fmt(r[1])} | {fmt(r[2])} | {fmt(r[3])} | {fmt(r[4], True)} | "
+                     f"{fmt(r[5], True)} | {fmt(r[6], True)} | {fmt(r[7], True)} | {'–' if r[8] is None else r[8]} |")
+    md = "\n".join(lines)
+    with open(f"{RES}results_table.md", 'w', encoding='utf-8') as f:
+        f.write(md + "\n")
+    print(md)
+
 
 if __name__ == "__main__":
-    plot_all_figures()
+    plot_losses()
+    plot_confusions()
+    results_table()
