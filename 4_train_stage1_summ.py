@@ -70,6 +70,10 @@ def compute_metrics(eval_pred):
         return {'rouge1': 0.0}
     
     # ===== Convert to text =====
+    # The Trainer pads generated predictions with -100; replace it before decoding
+    if isinstance(predictions, tuple):
+        predictions = predictions[0]
+    predictions = np.where(predictions != -100, predictions, tokenizer.pad_token_id)
     decoded_preds = tokenizer.batch_decode(predictions, skip_special_tokens=True)
     
     # Replace -100 with pad_token_id for decoding
