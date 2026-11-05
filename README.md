@@ -39,9 +39,14 @@ To rebuild them from the raw data, put `digikala_comments.csv` in `data/raw/`, `
 | 8 | `8_plot_results.py` | Loss curves, confusion matrices and the results table from real outputs | no |
 | 9 | `9_ablation.py` | Ablations: sentiment only from mT5-base; joint training without the curriculum | yes |
 | – | `train_common.py` | Shared training code used by steps 5, 6 and 9 | – |
+| – | `run_kaggle.ipynb` | Runs everything on Kaggle (recommended; runs in the background) | – |
 | – | `run_colab.ipynb` | Runs everything in Google Colab | – |
 
 \* `python 7_evaluate.py --baselines` needs no GPU.
+
+## Run on Kaggle (recommended)
+
+Create a new Kaggle notebook, choose **File → Import Notebook** and import `run_kaggle.ipynb` from this repository (GitHub tab). In *Session options* select a GPU and turn **Internet** on, then **Save Version → Save & Run All**. Results appear in the *Output* tab.
 
 ## Run in Google Colab
 
@@ -64,7 +69,7 @@ Outputs: models in `outputs/models/`, metrics and predictions in `outputs/result
 
 ## Settings
 
-mT5-base · AdamW, learning rate 5e-5, weight decay 0.01, 500 warm-up steps · batch 2 × 4 gradient-accumulation steps (effective 8) · at most 3 epochs per stage with early stopping on validation loss · max. input 512 / target 128 tokens · fp32 · no label smoothing · seed 42 · evaluation with beam search (4 beams, no repeated trigrams) · ROUGE with whitespace tokenization and no stemming (the default `rouge_score` tokenizer removes Persian letters).
+mT5-base · AdamW, learning rate 5e-5, weight decay 0.01, 500 warm-up steps · batch 2 × 4 gradient-accumulation steps (effective 8) · at most 2 / 3 / 2 epochs (Stages 1 / 2 / 3) with early stopping on validation loss · max. input 512 / target 128 tokens · fp32 · no label smoothing · seed 42 · evaluation with beam search (4 beams, no repeated trigrams) · ROUGE with whitespace tokenization and no stemming (the default `rouge_score` tokenizer removes Persian letters).
 
 Tested on one NVIDIA Tesla T4 (16 GB) in Google Colab.
 

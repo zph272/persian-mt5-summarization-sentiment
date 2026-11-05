@@ -186,8 +186,8 @@ def main():
         weight_decay=float(config['model']['weight_decay']),
         fp16=False,
         eval_strategy="steps",
-        eval_steps=200,
-        save_steps=200,
+        eval_steps=600,               # fewer evaluations: each one generates 500 summaries (~6 min)
+        save_steps=600,
         save_total_limit=2,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
@@ -231,6 +231,8 @@ def main():
     save_path = f"{config['output']['models_dir']}summ_final"
     model.save_pretrained(save_path)
     tokenizer.save_pretrained(save_path)
+    import shutil
+    shutil.rmtree(f"{config['output']['checkpoints_dir']}summ", ignore_errors=True)   # free disk space
     print(f"✅ Model saved: {save_path}")
     
     print("\n📊 Final evaluation (validation split):")
