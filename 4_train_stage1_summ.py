@@ -9,7 +9,8 @@ Changes vs. previous version:
   2. Random seed for sampling; no df.head().
   3. label_smoothing_factor = 0.0, so training and validation losses are plain
      cross-entropy on the same scale.
-  4. Larger eval batch (generation during validation is faster).
+  4. Validation computes the loss only (no text generation): faster, and avoids the
+     out-of-memory error seen at step 3,000 on a T4. Test-set ROUGE comes from 7_evaluate.py.
 """
 
 import os
@@ -182,7 +183,7 @@ def main():
         output_dir=f"{config['output']['checkpoints_dir']}summ",
         num_train_epochs=config['model']['epochs_stage1'],
         per_device_train_batch_size=2,
-        per_device_eval_batch_size=8,
+        per_device_eval_batch_size=4,
         gradient_accumulation_steps=4,
         learning_rate=float(config['model']['learning_rate']),
         warmup_steps=config['model']['warmup_steps'],
@@ -202,10 +203,11 @@ def main():
         label_smoothing_factor=0.0,   # plain cross-entropy: train/val losses on the same scale
         seed=SEED,
         remove_unused_columns=False,
-        prediction_loss_only=False,
-        predict_with_generate=True,
-        generation_max_length=config['data']['max_summary_length'],
-        generation_num_beams=2,
+        # Validation uses the loss only. Generating 500 summaries at every evaluation took ~4 min
+        # and caused a CUDA out-of-memory error at step 3,000 on a T4. ROUGE is computed on the
+        # test set by 7_evaluate.py.
+        prediction_loss_only=True,
+        predict_with_generate=False,
         dataloader_pin_memory=False,
         max_grad_norm=1.0,
     )
@@ -216,7 +218,7 @@ def main():
         args=training_args,
         train_dataset=tokenized_dataset['train'],
         eval_dataset=tokenized_dataset['test'],
-        compute_metrics=compute_metrics,
+        compute_metrics=None,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
         data_collator=data_collator,
     )
